@@ -172,6 +172,76 @@ void Chart::addSeries(const CellRange &range,
 }
 
 /*!
+ * Add the data series with X-axis range \a xRange and Y-axis range \a yRange.
+ */
+void Chart::addSeries(const CellRange &xRange,
+                      const CellRange &yRange,
+                      AbstractSheet *sheet,
+                      bool headerH,
+                      bool headerV,
+                      bool swapHeaders)
+{
+    Q_D(Chart);
+
+    if (!xRange.isValid() || !yRange.isValid())
+        return;
+    if (sheet && sheet->sheetType() != AbstractSheet::ST_WorkSheet)
+        return;
+    if (!sheet && d->sheet->sheetType() != AbstractSheet::ST_WorkSheet)
+        return;
+
+    QString sheetName = sheet ? sheet->sheetName() : d->sheet->sheetName();
+    // In case sheetName contains space or '
+    sheetName = escapeSheetName(sheetName);
+
+    auto series = std::make_shared<XlsxSeries>();
+
+    // Assuming xRange and yRange are single columns or single rows for simplicity in this initial implementation.
+    // More complex range handling might be needed depending on typical use cases.
+
+    series->axDataSource_numRef = sheetName + QLatin1String("!") + xRange.toString(true, true);
+    series->numberDataSource_numRef = sheetName + QLatin1String("!") + yRange.toString(true, true);
+
+    // Basic header handling, might need refinement based on how headers are typically structured with separate X/Y ranges.
+    if (headerH) {
+        // If there's a horizontal header, it's typically above the Y values if they are in a column,
+        // or above X values if data is row-wise. This part might need more sophisticated logic
+        // or clearer user guidance on how `headerH` and `headerV` apply to separate X/Y ranges.
+        // For now, let's assume headerH applies to yRange if it's a row, or xRange if it's a row and yRange is a column after it.
+        // This is a simplification.
+        if (yRange.rowCount() == 1 && yRange.columnCount() > 1) { // yRange is a row
+            CellRange header_range(yRange.firstRow() - 1, yRange.firstColumn(), yRange.firstRow() - 1, yRange.lastColumn());
+            if (header_range.isValid())
+                series->headerH_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
+        } else if (xRange.rowCount() == 1 && xRange.columnCount() > 1) { // xRange is a row
+             CellRange header_range(xRange.firstRow() - 1, xRange.firstColumn(), xRange.firstRow() - 1, xRange.lastColumn());
+             if (header_range.isValid())
+                series->headerH_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
+        }
+    }
+
+    if (headerV) {
+        // If there's a vertical header, it's typically to the left of the Y values if they are in a row,
+        // or to the left of X values if data is column-wise.
+        // This is also a simplification.
+        if (yRange.columnCount() == 1 && yRange.rowCount() > 1) { // yRange is a column
+            CellRange header_range(yRange.firstRow(), yRange.firstColumn() -1, yRange.lastRow(), yRange.firstColumn() - 1);
+            if (header_range.isValid())
+                series->headerV_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
+        } else if (xRange.columnCount() == 1 && xRange.rowCount() > 1) { // xRange is a column
+            CellRange header_range(xRange.firstRow(), xRange.firstColumn() - 1, xRange.lastRow(), xRange.firstColumn() - 1);
+            if (header_range.isValid())
+                 series->headerV_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
+        }
+    }
+
+    series->swapHeader = swapHeaders; // This might also need re-evaluation in the context of separate X/Y ranges.
+
+    d->seriesList.append(series);
+}
+
+
+/*!
  * Set the type of the chart to \a type
  */
 void Chart::setChartType(ChartType type)
@@ -1143,37 +1213,66 @@ void ChartPrivate::saveXmlSer(QXmlStreamWriter &writer, XlsxSeries *ser, int id)
     writer.writeEmptyElement(QStringLiteral("c:order"));
     writer.writeAttribute(QStringLiteral("val"), QString::number(id));
 
-    QString header1;
-    QString header2;
+    QString headerForTitle;
+    QString headerForCategories; // Only used if axDataSource_numRef is empty
+
     if (ser->swapHeader) {
-        header1 = ser->headerH_numRef;
-        header2 = ser->headerV_numRef;
+        headerForTitle = ser->headerH_numRef;
+        if (ser->axDataSource_numRef.isEmpty()) { // Only use this if actual X data source is not set
+            headerForCategories = ser->headerV_numRef;
+        }
     } else {
-        header1 = ser->headerV_numRef;
-        header2 = ser->headerH_numRef;
+        headerForTitle = ser->headerV_numRef;
+        if (ser->axDataSource_numRef.isEmpty()) { // Only use this if actual X data source is not set
+            headerForCategories = ser->headerH_numRef;
+        }
     }
 
-    if (!header1.isEmpty()) {
+    // Series Title (c:tx)
+    if (!headerForTitle.isEmpty()) {
         writer.writeStartElement(QStringLiteral("c:tx"));
         writer.writeStartElement(QStringLiteral("c:strRef"));
-        writer.writeTextElement(QStringLiteral("c:f"), header1);
-        writer.writeEndElement();
-        writer.writeEndElement();
-    }
-    if (!header2.isEmpty()) {
-        writer.writeStartElement(QStringLiteral("c:cat"));
-        writer.writeStartElement(QStringLiteral("c:strRef"));
-        writer.writeTextElement(QStringLiteral("c:f"), header2);
-        writer.writeEndElement();
-        writer.writeEndElement();
+        writer.writeTextElement(QStringLiteral("c:f"), headerForTitle);
+        writer.writeEndElement(); // c:strRef
+        writer.writeEndElement(); // c:tx
     }
 
+    // X-axis Data Source (c:cat or c:xVal)
+    if (!ser->axDataSource_numRef.isEmpty()) {
+        if (chartType == Chart::CT_ScatterChart || chartType == Chart::CT_BubbleChart) {
+            writer.writeStartElement(QStringLiteral("c:xVal"));
+            writer.writeStartElement(QStringLiteral("c:numRef")); // Scatter/Bubble X is typically numeric
+            writer.writeTextElement(QStringLiteral("c:f"), ser->axDataSource_numRef);
+            writer.writeEndElement(); // c:numRef
+            writer.writeEndElement(); // c:xVal
+        } else {
+            writer.writeStartElement(QStringLiteral("c:cat"));
+            // Defaulting to numRef for c:cat from axDataSource_numRef.
+            // This is a simplification. If xRange contains text, this should ideally be strRef.
+            writer.writeStartElement(QStringLiteral("c:numRef"));
+            writer.writeTextElement(QStringLiteral("c:f"), ser->axDataSource_numRef);
+            writer.writeEndElement(); // c:numRef
+            writer.writeEndElement(); // c:cat
+        }
+    } else if (!headerForCategories.isEmpty()) {
+        // Fallback for old behavior or if axDataSource_numRef was not supplied,
+        // and traditional headers are used for categories (non-scatter charts).
+        if (!(chartType == Chart::CT_ScatterChart || chartType == Chart::CT_BubbleChart)) {
+            writer.writeStartElement(QStringLiteral("c:cat"));
+            writer.writeStartElement(QStringLiteral("c:strRef")); // Headers are typically strings
+            writer.writeTextElement(QStringLiteral("c:f"), headerForCategories);
+            writer.writeEndElement(); // c:strRef
+            writer.writeEndElement(); // c:cat
+        }
+    }
+
+    // Y-axis Data Source (c:val or c:yVal)
     if (!ser->numberDataSource_numRef.isEmpty()) {
         if (chartType == Chart::CT_ScatterChart || chartType == Chart::CT_BubbleChart)
             writer.writeStartElement(QStringLiteral("c:yVal"));
         else
             writer.writeStartElement(QStringLiteral("c:val"));
-        writer.writeStartElement(QStringLiteral("c:numRef"));
+        writer.writeStartElement(QStringLiteral("c:numRef")); // Y-values are typically numeric
         writer.writeTextElement(QStringLiteral("c:f"), ser->numberDataSource_numRef);
         writer.writeEndElement(); // c:numRef
         writer.writeEndElement(); // c:val or c:yVal

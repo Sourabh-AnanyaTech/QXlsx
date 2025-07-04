@@ -55,5 +55,6 @@ rowcolumn.cpp \
 style.cpp \
 worksheetoperations.cpp \
 readStyle.cpp \
-pageMargins.cpp
+pageMargins.cpp \
+    xychart.cpp
 

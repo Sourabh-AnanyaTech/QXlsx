@@ -38,6 +38,7 @@ extern int style();
 extern int worksheetoperations();
 extern int readStyle();
 extern int pages();
+extern int testXyChart();
 
 int main(int argc, char *argv[])
 {
@@ -72,6 +73,7 @@ int main(int argc, char *argv[])
     style();
     worksheetoperations();
     pages();
+    testXyChart();
 
     qDebug() << "**** end of main() ****";
 
