@@ -202,41 +202,45 @@ void Chart::addSeries(const CellRange &xRange,
     series->axDataSource_numRef = sheetName + QLatin1String("!") + xRange.toString(true, true);
     series->numberDataSource_numRef = sheetName + QLatin1String("!") + yRange.toString(true, true);
 
-    // Basic header handling, might need refinement based on how headers are typically structured with separate X/Y ranges.
+    // Clear any previous header refs for this series object
+    series->headerH_numRef = QString();
+    series->headerV_numRef = QString();
+
     if (headerH) {
-        // If there's a horizontal header, it's typically above the Y values if they are in a column,
-        // or above X values if data is row-wise. This part might need more sophisticated logic
-        // or clearer user guidance on how `headerH` and `headerV` apply to separate X/Y ranges.
-        // For now, let's assume headerH applies to yRange if it's a row, or xRange if it's a row and yRange is a column after it.
-        // This is a simplification.
-        if (yRange.rowCount() == 1 && yRange.columnCount() > 1) { // yRange is a row
-            CellRange header_range(yRange.firstRow() - 1, yRange.firstColumn(), yRange.firstRow() - 1, yRange.lastColumn());
-            if (header_range.isValid())
-                series->headerH_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
-        } else if (xRange.rowCount() == 1 && xRange.columnCount() > 1) { // xRange is a row
-             CellRange header_range(xRange.firstRow() - 1, xRange.firstColumn(), xRange.firstRow() - 1, xRange.lastColumn());
-             if (header_range.isValid())
-                series->headerH_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
+        // If yRange is a column (e.g., C2:C100), headerH should take the cell above (e.g., C1)
+        if (yRange.columnCount() == 1 && yRange.rowCount() > 0 && yRange.firstRow() > 1) {
+            CellRange header_h_ref(yRange.firstRow() - 1, yRange.firstColumn(), yRange.firstRow() - 1, yRange.firstColumn());
+            if (header_h_ref.isValid()) {
+                series->headerH_numRef = sheetName + QLatin1String("!") + header_h_ref.toString(true, true);
+            }
+        }
+        // If yRange is a single row (e.g. B2:E2), headerH should take the row above (e.g. B1:E1)
+        else if (yRange.rowCount() == 1 && yRange.columnCount() > 0 && yRange.firstRow() > 1) {
+            CellRange header_h_ref(yRange.firstRow() - 1, yRange.firstColumn(), yRange.firstRow() - 1, yRange.lastColumn());
+            if (header_h_ref.isValid()) {
+                series->headerH_numRef = sheetName + QLatin1String("!") + header_h_ref.toString(true, true);
+            }
         }
     }
 
     if (headerV) {
-        // If there's a vertical header, it's typically to the left of the Y values if they are in a row,
-        // or to the left of X values if data is column-wise.
-        // This is also a simplification.
-        if (yRange.columnCount() == 1 && yRange.rowCount() > 1) { // yRange is a column
-            CellRange header_range(yRange.firstRow(), yRange.firstColumn() -1, yRange.lastRow(), yRange.firstColumn() - 1);
-            if (header_range.isValid())
-                series->headerV_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
-        } else if (xRange.columnCount() == 1 && xRange.rowCount() > 1) { // xRange is a column
-            CellRange header_range(xRange.firstRow(), xRange.firstColumn() - 1, xRange.lastRow(), xRange.firstColumn() - 1);
-            if (header_range.isValid())
-                 series->headerV_numRef = sheetName + QLatin1String("!") + header_range.toString(true, true);
+        // If xRange is a column (e.g. A2:A100), headerV should take cell to the left
+        if (xRange.columnCount() == 1 && xRange.rowCount() > 0 && xRange.firstColumn() > 1) {
+            CellRange header_v_ref(xRange.firstRow(), xRange.firstColumn() - 1, xRange.lastRow(), xRange.firstColumn() - 1);
+             if (header_v_ref.isValid()) {
+                series->headerV_numRef = sheetName + QLatin1String("!") + header_v_ref.toString(true, true);
+             }
+        }
+        // If xRange is a single row (e.g. B1:E1), headerV should take cell to the left of B1
+        else if (xRange.rowCount() == 1 && xRange.columnCount() > 0 && xRange.firstColumn() > 1) {
+            CellRange header_v_ref(xRange.firstRow(), xRange.firstColumn() - 1, xRange.firstRow(), xRange.firstColumn() - 1);
+            if (header_v_ref.isValid()) {
+                series->headerV_numRef = sheetName + QLatin1String("!") + header_v_ref.toString(true, true);
+            }
         }
     }
 
-    series->swapHeader = swapHeaders; // This might also need re-evaluation in the context of separate X/Y ranges.
-
+    series->swapHeader = swapHeaders;
     d->seriesList.append(series);
 }
 
